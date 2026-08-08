@@ -2,6 +2,9 @@
 """
 Stale Listing Detector for NSGI-ORS Pipeline
 Cross-references master enumeration against verification pass to find inconsistencies.
+
+Only flags IDs that are marked ACTIVE in the master enumeration but have confirmed
+removal context in the verification pass.
 """
 import argparse
 import json
@@ -10,52 +13,113 @@ from pathlib import Path
 from datetime import datetime
 
 
-def extract_removed_ids_from_verification(path):
-    """Extract opportunity IDs marked as removed in verification pass."""
+REMOVAL_PATTERNS = [
+    r'CONFIRMED\s+INACTIVE',
+    r'CANCELED',
+    r'EXCLUDE\s+FROM\s+ACTIVE\s+PIPELINE',
+    r'VERDICT:\s*INACTIVE',
+    r'VERDICT:\s*CANCELED',
+    r'WRONG\s+NOTICE\s+ID',
+    r'WITHDRAWN',
+    r'\bEXCLUDE\b',
+]
+
+REMOVAL_BLOCK_PATTERN = re.compile('|'.join(REMOVAL_PATTERNS), re.IGNORECASE)
+
+ID_PATTERN = re.compile(
+    r'(?:'
+    r'\b[A-Z]{2,}[0-9]{2,}(?:-[A-Z0-9-]+)*\b|'
+    r'\b[0-9a-f]{32}\b'
+    r')',
+    re.IGNORECASE
+)
+
+PHONE_PATTERN = re.compile(r'\b\d{3}-\d{3}-\d{4}\b')
+DATE_PATTERN = re.compile(r'\b(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b')
+GENERIC_TERMS = {
+    'RE-VERIFICATION', 'MICRO-PURCHASE', 'SET-ASIDE', 'SOURCES-SOUGHT',
+    'FOLLOW-ON', 'SOLE-SOURCE', 'VERIFICATION', 'STATUS', 'ACTIVE',
+    'CONFIRMED', 'INACTIVE', 'CANCELED', 'WITHDRAWN', 'PAST', 'DUE',
+    'VERIFIED', 'REMOVED', 'EXCLUDE', 'WRONG', 'NOTICE', 'INTENT',
+    'EXPIRED', 'LISTED', 'RE-COMPETE', 'DEADLINE', 'RESPONSE', 'DATE',
+    'PUBLISHED', 'INACTIVE', 'PLACE', 'PERFORMANCE', 'CLEARANCE',
+    'AGENCY', 'CONTACT', 'ADDRESS', 'ATTACHMENTS', 'TYPE', 'VALUE',
+    'CONTRACT', 'EASY', 'PROJECTS', 'PROJECT', 'MAY', 'JUN', 'JUL',
+    'AUG', 'SEP', 'OCT', 'NOV', 'DEC', 'JAN', 'FEB', 'MAR', 'APR',
+    'JUNE', 'AUTHORITATIVE', 'SOURCE', 'VERDICT', 'ACTION', 'REQUIRED'
+}
+
+
+def _is_removal_context(text: str) -> bool:
+    return bool(REMOVAL_BLOCK_PATTERN.search(text))
+
+
+def _candidate_ids(text: str) -> set[str]:
+    return set(
+        m.group(0).upper()
+        for m in ID_PATTERN.finditer(text)
+        if m.group(0).upper() not in GENERIC_TERMS
+        and not PHONE_PATTERN.match(m.group(0))
+        and not DATE_PATTERN.match(m.group(0))
+    )
+
+
+def extract_removed_ids_from_verification(path: Path) -> dict[str, str]:
     content = path.read_text(encoding='utf-8')
-    results = {}
+    lines = content.splitlines()
+    removed: dict[str, str] = {}
 
-    for m in re.finditer(r'(?:EX-(\d+))\s*[.:\-]\s*([^\n]+)', content, re.IGNORECASE):
-        ex_block = m.group(2)
-        if not re.search(r'\b(?:INACTIVE|CANCELED|WITHDRAWN|PAST\s+DUE|EXCLUDE|WRONG\s+NOTICE|INTENT\s+TO\s+SOLE\s+SOURCE)\b', ex_block, re.IGNORECASE):
+    context_window = 12
+    for idx, line in enumerate(lines):
+        if not _is_removal_context(line):
             continue
-        candidates = re.findall(r'\b(?:[0-9a-f]{32}|[A-Z]{2,}-[A-Z0-9-]{2,}-[A-Z0-9-]{2,}|[A-Z0-9]{4,}-[A-Z0-9]{2,}-[A-Z0-9-]+)\b', ex_block, re.IGNORECASE)
-        for c in candidates:
-            results[c.upper()] = 'REMOVED'
+        window = '\n'.join(lines[idx:min(idx + context_window, len(lines))])
+        opp_ids = _candidate_ids(window)
+        for opp_id in opp_ids:
+            if opp_id not in removed:
+                removed[opp_id] = line.strip()
 
-    for line in content.splitlines():
-        if not re.search(r'\b(?:CONFIRMED INACTIVE|EXCLUDE)\b', line, re.IGNORECASE):
+    return removed
+
+
+def extract_active_ids_from_enumeration(path: Path) -> dict[str, str]:
+    content = path.read_text(encoding='utf-8')
+    lines = content.splitlines()
+    active_ids: dict[str, str] = {}
+
+    context_window = 8
+    for idx, line in enumerate(lines):
+        if not re.search(r'\bVERIFIED\s+ACTIVE\b|\bCONFIRMED\s+ACTIVE\b|\bACTIVE\s*\*?\b', line, re.IGNORECASE):
             continue
-        candidates = re.findall(r'\b(?:[0-9a-f]{32}|[A-Z]{2,}-[A-Z0-9-]{2,}-[A-Z0-9-]{2,}|[A-Z0-9]{4,}-[A-Z0-9]{2,}-[A-Z0-9-]+)\b', line, re.IGNORECASE)
-        for c in candidates:
-            results[c.upper()] = 'REMOVED'
+        window = '\n'.join(lines[max(0, idx - context_window):idx + 1])
+        opp_ids = _candidate_ids(window)
+        for opp_id in opp_ids:
+            if opp_id not in active_ids:
+                active_ids[opp_id] = line.strip()
 
-    return results
-
-
-def check_ids_in_enumeration(enumeration_path, target_ids):
-    enumeration_content = enumeration_path.read_text(encoding='utf-8').upper()
-    return {opp_id: opp_id in enumeration_content for opp_id in target_ids}
+    return active_ids
 
 
-def detect_stale_listings(enumeration_path, verification_path):
+def detect_stale_listings(enumeration_path: Path, verification_path: Path):
     removed_ids = extract_removed_ids_from_verification(verification_path)
-    presence = check_ids_in_enumeration(enumeration_path, removed_ids.keys())
+    active_ids = extract_active_ids_from_enumeration(enumeration_path)
 
     stale = []
-    for opp_id, is_present in presence.items():
-        if is_present:
+    for opp_id, evidence in removed_ids.items():
+        if opp_id in active_ids:
             stale.append({
                 'id': opp_id,
                 'status': 'REMOVED',
-                'issue': 'Listed in enumeration but marked as removed in verification pass',
+                'evidence': evidence,
+                'issue': 'Listed as ACTIVE in master enumeration but marked as removed in verification pass',
                 'recommendation': 'Remove from master enumeration or update verification pass'
             })
 
     return {
         'stale_listings': stale,
         'removed_count': len(removed_ids),
-        'present_in_enumeration_count': sum(1 for v in presence.values() if v)
+        'active_ids_count': len(active_ids),
+        'present_in_enumeration_count': sum(1 for item in stale if item['id'] in active_ids)
     }
 
 
@@ -74,8 +138,9 @@ def main():
     output_path = Path(args.output)
     output_path.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print('Report written to {}'.format(output_path))
+    print('Active IDs in master enumeration: {}'.format(report['active_ids_count']))
     print('Removed IDs from verification: {}'.format(report['removed_count']))
-    print('Removed IDs still in enumeration: {}'.format(report['present_in_enumeration_count']))
+    print('Active IDs with removal context: {}'.format(report['present_in_enumeration_count']))
     print('Stale listings found: {}'.format(len(report['stale_listings'])))
     if report['stale_listings']:
         print('Stale listings:')
