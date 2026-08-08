@@ -1,5 +1,13 @@
 # NSGI-ORS Pipeline
 
+<p align="left">
+  <img src="https://github.com/ZQM-Computing/nsgi-ors-pipeline/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <img src="https://img.shields.io/badge/tests-passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/ruff-passing-blue" alt="Ruff" />
+  <img src="https://img.shields.io/badge/mypy-passing-blue" alt="Mypy" />
+</p>
+
+
 ![Status](https://img.shields.io/badge/status-active-success)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Topics](https://img.shields.io/badge/topic-federal_procurement-informational)
