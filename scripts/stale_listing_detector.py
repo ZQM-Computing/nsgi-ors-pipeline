@@ -4,7 +4,8 @@ Stale Listing Detector for NSGI-ORS Pipeline
 Cross-references master enumeration against verification pass to find inconsistencies.
 
 Only flags IDs that are marked ACTIVE in the master enumeration but have confirmed
-removal context in the verification pass.
+removal context in the verification pass. Uses section-aware parsing to avoid
+cross-contamination between verification entries.
 """
 import argparse
 import json
@@ -87,12 +88,15 @@ def extract_active_ids_from_enumeration(path: Path) -> dict[str, str]:
     lines = content.splitlines()
     active_ids: dict[str, str] = {}
 
-    context_window = 8
     for idx, line in enumerate(lines):
         if not re.search(r'\bVERIFIED\s+ACTIVE\b|\bCONFIRMED\s+ACTIVE\b|\bACTIVE\s*\*?\b', line, re.IGNORECASE):
             continue
-        window = '\n'.join(lines[max(0, idx - context_window):idx + 1])
-        opp_ids = _candidate_ids(window)
+        # Only scan the current entry block: from the previous blank line or heading to this line
+        block_start = idx
+        while block_start > 0 and lines[block_start - 1].strip() != '' and not re.match(r'^T\d+-', lines[block_start - 1]):
+            block_start -= 1
+        block = '\n'.join(lines[block_start:idx + 1])
+        opp_ids = _candidate_ids(block)
         for opp_id in opp_ids:
             if opp_id not in active_ids:
                 active_ids[opp_id] = line.strip()
