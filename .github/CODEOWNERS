@@ -1,0 +1,12 @@
+# Default owners for everything
+* @ZQM-Computing
+
+# Pipeline documents require approval from lead
+authoritative/ @ZQM-Computing
+
+# Workflows require lead approval
+.github/workflows/ @ZQM-Computing
+
+# Verification scripts require lead approval
+scripts/ @ZQM-Computing
+references/ @ZQM-Computing

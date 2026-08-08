@@ -1,0 +1,77 @@
+name: Stale Listing Removal Validation
+description: Request to remove an opportunity from the active pipeline
+title: "[REMOVAL] <OPPORTUNITY_ID> - <OPPORTUNITY_TITLE>"
+labels: ["removal-validation", "audit"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Stale Listing Removal Validation
+        **REQUIRED**: All fields must be completed before merging to main.
+  - type: input
+    id: opportunity_id
+    attributes:
+      label: Opportunity ID
+      description: Exact SAM.gov opportunity ID
+      placeholder: "75D301-26-Q-79197"
+    validations:
+      required: true
+  - type: dropdown
+    id: status
+    attributes:
+      label: Confirmed Status
+      options:
+        - INACTIVE
+        - CANCELED
+        - WITHDRAWN
+        - PAST DUE / STILL LISTED
+        - EXPIRED
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: sam_extract
+    attributes:
+      label: Live SAM.gov Extract Reference
+      description: Path to cached extract file or URL of live page
+      placeholder: |
+        sam.gov-5887305c65.md lines 1-120
+        OR
+        https://sam.gov/opp/75d30126q79197/view
+    validations:
+      required: true
+  - type: textarea
+    id: verification_pass
+    attributes:
+      label: Verification Pass Reference
+      description: File path and line numbers in verification pass
+      placeholder: "NSGI_ORS_Verification_Pass_2026-08-07.md lines 1-8"
+    validations:
+      required: true
+  - type: textarea
+    id: removal_reason
+    attributes:
+      label: Removal Reason
+      description: Why this listing is being removed from active pipeline
+      placeholder: "Deadline passed; SAM.gov shows INACTIVE as of 2026-08-07"
+    validations:
+      required: true
+  - type: textarea
+    id: dual_confirmation
+    attributes:
+      label: Dual Confirmation
+      description: Confirm both checks were completed
+      placeholder: |
+        [x] Live SAM.gov extract confirms status
+        [x] Verification pass documents removal decision
+        [x] No duplicate IDs remaining in master enumeration
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        **Audit Trail**: This issue will be referenced in the commit message and merged to main only after:
+        1. Required PR review approved
+        2. Stale-listing-detection workflow passes
+        3. CODEOWNER review approved
